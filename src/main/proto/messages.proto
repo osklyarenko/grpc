@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package com.vgs.grpc.model;
+
+message Person {
+    string firstName = 1;
+    string lastName = 2;
+    int32 age = 3;
+}
+
+
+service PersonService {
+    rpc CreateOrUpdate (Person) returns (repeated Person) {}
+}

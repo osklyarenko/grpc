@@ -1,0 +1,412 @@
+version: '2.1'
+services:
+
+  vault-proxy-tcp:
+    build:
+      context: .
+      dockerfile: ops/docker/vault/vault-proxy-tcp/Dockerfile
+      args:
+        jarFile: ./vault-proxy-tcp/target/vault-proxy-tcp.jar
+        targetFile: vault-proxy-tcp.jar
+        runScript: ./ops/eb/vault/vault-proxy-tcp.sh
+    command: -m 512m
+    ports:
+     - "8010:8010"
+    volumes:
+     - .:/vault
+     - ~/.aws:/root/.aws
+    environment:
+     - NEWRELIC_APP_NAME=vault-proxy-tcp
+     - APP_ENVIRONMENT=dev
+     - AWS_DEFAULT_PROFILE
+     - AWS_PROFILE
+     - AWS_DEFAULT_REGION
+     - AWS_REGION
+
+  act-mgmt-http:
+    build:
+      context: .
+      dockerfile: ops/docker/genpop/act-mgmt-http/Dockerfile
+      args:
+        jarFile: ./act-mgmt-http-api/target/act-mgmt-http-api.jar
+        targetFile: act-mgmt-http.jar
+        runScript: ./ops/eb/genpop/act-mgmt-http.sh
+    command: -m 512m
+    volumes:
+     - ~/.aws:/root/.aws
+    ports:
+     - "8003:8003"
+    environment:
+     - NEWRELIC_APP_NAME=account-mgmt-http
+     - JWT_SECRET=secret
+     - AUTH0_CLIENT_ID=RqP2zBk7LWTgy78TaEJyNOLMzSQ4Ubrw
+     - AUTH0_CLIENT_SECRET=thx7QrKB3NpXAQTDw6-iotUlcOYU7KBt6cctXf4I3jB6vzc21LuqIMHZiWCU4kW9
+     - MANAGEMENT_AUTH0_CLIENT_ID=mx0C2LW9aTsO3CfVfEC84PGNsLLucHC3
+     - MANAGEMENT_AUTH0_CLIENT_SECRET=jx6b725y0LAanY6xwpfyBJOmS7l7rvzgKuug8WIM0SQramZCTk_u8jNFlYmwybZu
+     - AWS_DEFAULT_PROFILE
+     - AWS_PROFILE
+     - AWS_DEFAULT_REGION
+     - AWS_REGION
+     - VAULT_MANAGEMENT_SANDBOX_URI=http://vault-mgmt-http:8004
+     - VAULT_MANAGEMENT_LIVE_URI=http://vault-mgmt-http:8004
+     - PASSWORD_ENCRYPTOR_KMS_KEY_ID=arn:aws:kms:us-west-2:517000063441:key/118de4f7-162e-46df-9b31-09aca85ddf3f
+     - SELF_HOST_PATTERN=?(domain)/?(resource)/?{id}
+     - REVERSE_PROXY_HOST_PATTERN=https://?(tenantIdentifier).?(environment).verygoodproxy.com
+     - FORWARD_PROXY_HOST_PATTERN=https://?(key):?(secret)@?(tenantIdentifier).?(environment).verygoodproxy.com:8080
+     - ETCD_ENABLED=true
+     - ETCD_ROOT=/
+     - ETCD_LOOKUP_PATH=/act-mgmt-http
+     - ETCD_LOCATION=http://etcd:2379
+    depends_on:
+     - postgres
+     - provision-test-database
+     - etcd-tool
+     - vault-mgmt-http
+
+  vault-mgmt-http:
+    build:
+      context: .
+      dockerfile: ops/docker/vault/vault-mgmt-http/Dockerfile
+      args:
+        jarFile: ./vault-mgmt-http-api/target/vault-mgmt-http-api.jar
+        targetFile: vault-mgmt-http.jar
+        runScript: ./ops/eb/vault/vault-mgmt-http.sh
+    command: -m 512m
+    ports:
+     - "8004:8004"
+    volumes:
+     - .:/vault
+     - ~/.aws:/root/.aws
+    environment:
+     - JDBC_CONNECTION_STRING=jdbc:postgresql://postgres:5432/vault_test?user=vault
+     - PROVISIONER_APP_NAME=vault-worker
+     - PROVISIONER_REQUEST_STREAM=tenancy-provisioner-requests
+     - PROVISIONER_RESPONSE_STREAM=tenancy-provisioner-responses
+     - NEWRELIC_APP_NAME=vault-mgmt-http
+     - vgs.amazon.dynamoDB.endpoint=http://dynamo-db:8000
+     - SECURE_LOGGER_ENABLED=true
+     - SECURE_LOGGER_KMS_KEY_ID=arn:aws:kms:us-west-2:517000063441:key/118de4f7-162e-46df-9b31-09aca85ddf3f
+     - JWT_SECRET=secret
+     - AWS_DEFAULT_PROFILE
+     - AWS_PROFILE
+     - AWS_DEFAULT_REGION
+     - AWS_REGION
+     - vault.provisioning-api.grpc.host=vault-provisioning-api
+     - vault.preferences-api.grpc.host=vault-preferences-api
+    depends_on:
+     - postgres
+     - provision-test-database
+     - dynamo-db
+     - vault-provisioning-api
+     - vault-preferences-api
+
+  vault-provisioning-api:
+    build:
+      context: .
+      dockerfile: ops/docker/vault/vault-provisioning-api/Dockerfile
+      args:
+        jarFile: ./vault-provisioning-api/target/vault-provisioning-api.jar
+        targetFile: vault-provisioning-api.jar
+        runScript: ./ops/eb/vault/vault-provisioning-api.sh
+    command: -m 128m
+    ports:
+     - "8101:8101"
+     - "7101:7101"
+    volumes:
+     - .:/vault
+     - ~/.aws:/root/.aws
+    environment:
+     - JDBC_CONNECTION_STRING=jdbc:postgresql://postgres:5432/vault_test?user=vault
+     - PROVISIONER_APP_NAME=vault-worker-local
+     - PROVISIONER_REQUEST_STREAM=tenancy-provisioner-requests-local
+     - PROVISIONER_RESPONSE_STREAM=tenancy-provisioner-responses-local
+     - PROVISIONER_ENABLED=true
+     - NEWRELIC_APP_NAME=vault-provisioning-api
+     - JWT_SECRET=secret
+     - AWS_DEFAULT_PROFILE
+     - AWS_PROFILE
+     - AWS_DEFAULT_REGION
+     - AWS_REGION
+     - aws.kinesis.endpoint=http://aws-local:4568
+     - AWS_CBOR_DISABLE=true
+    depends_on:
+     - postgres
+     - provision-test-database
+     - aws-local
+
+  vault-preferences-api:
+      build:
+        context: .
+        dockerfile: ops/docker/vault/vault-preferences-api/Dockerfile
+        args:
+          jarFile: ./vault-preferences-api/target/vault-preferences-api.jar
+          targetFile: vault-preferences-api.jar
+          runScript: ./ops/eb/vault/vault-preferences-api.sh
+      command: -m 128m
+      ports:
+       - "8102:8102"
+       - "7102:7102"
+      volumes:
+       - .:/vault
+       - ~/.aws:/root/.aws
+      environment:
+       - JDBC_CONNECTION_STRING=jdbc:postgresql://postgres:5432/vault_test?user=vault
+       - NEWRELIC_APP_NAME=vault-preferences-api
+       - JWT_SECRET=secret
+       - AWS_DEFAULT_PROFILE
+       - AWS_PROFILE
+       - AWS_DEFAULT_REGION
+       - AWS_REGION
+      depends_on:
+       - postgres
+       - provision-test-database
+
+  vault-proxy-http:
+    build:
+      context: .
+      dockerfile: ops/docker/vault/vault-proxy-http/Dockerfile
+      args:
+        jarFile: ./vault-proxy-http/target/vault-proxy-http.jar
+        targetFile: vault-proxy-http.jar
+        runScript: ./ops/eb/vault/vault-proxy-http.sh
+    command: -m 2048m
+    ports:
+     - "8081:8081"
+     - "8082:8082"
+    volumes:
+     - .:/vault
+     - ~/.aws:/root/.aws
+     - ./logs:/var/log
+    environment:
+     - JDBC_CONNECTION_STRING=jdbc:postgresql://postgres:5432/vault_test?user=vault
+     - AWS_TOKENIZING_KEY_ID=arn:aws:kms:us-west-2:517000063441:key/118de4f7-162e-46df-9b31-09aca85ddf3f
+     - VOLATILE_CACHE_ENDPOINT=redis
+     - NEWRELIC_APP_NAME=vault-proxy-http
+     - FORWARD_PROXY_CERT_KEY_STORE=/vault/
+     - FORWARD_PROXY_CERT_NAME=vgs-forward-proxy-dev
+     - FORWARD_PROXY_CERT_PASSWORD=dbed2eab-5073-4c50-9fc2-a1b7922690e8
+     - FORWARD_PROXY_CERT_COMMON_NAME=*.dev.verygoodproxy.com
+     - vgs.amazon.dynamoDB.endpoint=http://dynamo-db:8000
+     - SECURE_LOGGER_ENABLED=true
+     - SECURE_LOGGER_KMS_KEY_ID=arn:aws:kms:us-west-2:517000063441:key/118de4f7-162e-46df-9b31-09aca85ddf3f
+     - JWT_SECRET=secret
+     - DATA_BUCKET=vault-dev-01-audits-01-data-mlc8mjba5h81
+     - AWS_PROFILE
+     - AWS_DEFAULT_REGION
+     - vault.preferences-api.grpc.host=vault-preferences-api
+    depends_on:
+      - redis
+      - postgres
+      - provision-test-database
+      - dynamo-db
+      - vault-preferences-api
+      - fluentd-aggregator
+      - fluentd-forwarder
+      - prometheus-service
+
+  vault-http:
+    build:
+      context: .
+      dockerfile: ops/docker/vault/vault-http/Dockerfile
+      args:
+        jarFile: ./vault-http/target/vault-http.jar
+        targetFile: vault-http.jar
+        runScript: ./ops/eb/vault/vault-http.sh
+    command: -m 512m
+    ports:
+     - "8080:8080"
+    volumes:
+     - .:/vault
+     - ~/.aws:/root/.aws
+    environment:
+     - JDBC_CONNECTION_STRING=jdbc:postgresql://postgres:5432/vault_test?user=vault
+     - AWS_TOKENIZING_KEY_ID=arn:aws:kms:us-west-2:517000063441:key/118de4f7-162e-46df-9b31-09aca85ddf3f
+     - VOLATILE_CACHE_ENDPOINT=redis
+     - NEWRELIC_APP_NAME=vault-api-http
+     - JWT_SECRET=secret
+     - AWS_DEFAULT_PROFILE
+     - AWS_PROFILE
+     - AWS_DEFAULT_REGION
+     - AWS_REGION
+    depends_on:
+      - redis
+      - postgres
+      - provision-test-database
+
+  vault-proxy-sftp:
+    build:
+      context: .
+      dockerfile: ops/docker/vault/vault-proxy-sftp/Dockerfile
+      args:
+        jarFile: ./vault-proxy-sftp/target/vault-proxy-sftp.jar
+        targetFile: vault-proxy-sftp.jar
+        runScript: ./ops/eb/vault/vault-proxy-sftp.sh
+    command: -m 512m
+    ports:
+     - "8022:2022"
+    volumes:
+     - .:/vault
+     - ~/.aws:/root/.aws
+    environment:
+     - JDBC_CONNECTION_STRING=jdbc:postgresql://postgres:5432/vault_test?user=vault
+     - AWS_TOKENIZING_KEY_ID=arn:aws:kms:us-west-2:517000063441:key/118de4f7-162e-46df-9b31-09aca85ddf3f
+     - VOLATILE_CACHE_ENDPOINT=redis
+     - NEWRELIC_APP_NAME=vault-proxy-sftp
+     - DATA_BUCKET=vault-dev-01-audits-01-data-mlc8mjba5h81
+     - APP_ENVIRONMENT=dev
+     - AWS_DEFAULT_PROFILE
+     - AWS_PROFILE
+     - AWS_DEFAULT_REGION
+     - AWS_REGION
+    depends_on:
+      - redis
+      - postgres
+      - provision-test-database
+
+  vault-worker:
+    build:
+      context: .
+      dockerfile: ops/docker/vault/vault-worker/Dockerfile
+      args:
+        jarFile: ./vault-worker/target/vault-worker.jar
+        targetFile: vault-worker.jar
+        runScript: ./ops/eb/vault/vault-worker.sh
+    command: -m 512m
+    volumes:
+     - .:/vault
+     - ~/.aws:/root/.aws
+    environment:
+     - JDBC_CONNECTION_STRING=jdbc:postgresql://postgres:5432/vault_test?user=vault
+     - PROVISIONER_APP_NAME=vault-worker-local
+     - PROVISIONER_REQUEST_STREAM=tenancy-provisioner-requests-local
+     - PROVISIONER_RESPONSE_STREAM=tenancy-provisioner-responses-local
+     - DATA_BUCKET=vault-dev-01-audits-01-data-mlc8mjba5h81
+     - NEWRELIC_APP_NAME=vault-worker
+     - AWS_DEFAULT_PROFILE
+     - AWS_PROFILE
+     - AWS_DEFAULT_REGION
+     - AWS_REGION
+     - aws.kinesis.endpoint=http://aws-local:4568
+     - AWS_CBOR_DISABLE=true
+    depends_on:
+     - aws-local
+     - postgres
+     - provision-test-database
+
+  redis:
+    image: redis
+    ports:
+     - "6379:6379"
+
+  postgres:
+    image: postgres:9.5.6
+    expose:
+     - 5432
+    ports:
+     - "5442:5432"
+
+  provision-test-database:
+    build:
+     context: .
+     dockerfile: ops/docker/misc/vgs/provision-test-database/Dockerfile
+     args:
+      initScripts: ./db
+      pom: ./pom.xml
+    volumes:
+     - ~/.m2:/root/.m2
+    depends_on:
+     - postgres
+
+  dynamo-db:
+    build:
+     context: .
+     dockerfile: ops/docker/vault/dynamodb/Dockerfile
+    ports:
+     - "8000:8000"
+
+  provision-dynamodb-local:
+    build:
+     context: .
+     dockerfile: ops/docker/vault/dynamodb/provisioning/Dockerfile
+     args:
+       runScript: ./ops/create_dynamodb_table.sh
+    volumes:
+       - .:/vault
+       - ~/.aws:/root/.aws
+    depends_on:
+      - dynamo-db
+    environment:
+      - AWS_DEFAULT_PROFILE
+      - AWS_PROFILE
+      - AWS_DEFAULT_REGION
+      - AWS_REGION
+
+  etcd:
+    build:
+      context: .
+      dockerfile: ops/docker/etcd/Dockerfile
+      args:
+        runScript: ./ops/run-etcd.sh
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+      - "4001:4001"
+
+  etcd-tool:
+    build:
+      context: .
+      dockerfile: ops/docker/etcd-tool/Dockerfile
+      args:
+        runScript: ./ops/export-etcd-variables.sh
+    environment:
+     - ETCD_HOST=etcd
+     - VARIABLES_FILE=/mnt/src/ops/docker/etcd-tool/variables-local.json
+    volumes:
+      - ./:/mnt/src
+    depends_on:
+      - etcd
+
+  fluentd-aggregator:
+      container_name: fluentd-aggregator
+      build:
+        context: ./ops/docker/monitoring/fluentd-aggregator
+        dockerfile: Dockerfile
+        args:
+          fleuntdConf: ./fluent.conf
+      volumes:
+       - ./logs:/logs
+      ports:
+       - "24224:24224"
+       - "24231:24231"
+
+  fluentd-forwarder:
+    container_name: fluentd-forwarder
+    build:
+      context: ./ops/docker/monitoring/fluentd-forwarder
+      dockerfile: Dockerfile
+      args:
+        fleuntdConf: ./fluent.conf
+    volumes:
+     - ./logs:/logs
+    environment:
+      - METRICS_FILE=/logs/vault-proxy-http.log.json
+    depends_on:
+      - fluentd-aggregator
+
+  prometheus-service:
+    container_name: prometheus-service
+    build:
+      context: ./ops/docker/monitoring/prometheus
+      dockerfile: Dockerfile
+    ports:
+      - "9090:9090"
+    depends_on:
+      - fluentd-forwarder
+
+  aws-local:
+    image: localstack/localstack:0.7.3
+    environment:
+     - SERVICES=kinesis
+     - DEFAULT_REGION=$AWS_REGION
+    ports:
+     - "4568:4568"
